@@ -1,13 +1,9 @@
 package com.abddennebi.demo.filter;
 
-import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.Bucket;
-import io.github.bucket4j.Bucket4j;
-import io.github.bucket4j.BucketConfiguration;
+import io.github.bucket4j.*;
 import io.github.bucket4j.grid.GridBucketState;
 import io.github.bucket4j.grid.ProxyManager;
 import io.github.bucket4j.grid.jcache.JCache;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.filter.GenericFilterBean;
 
 import javax.cache.Cache;
@@ -21,6 +17,9 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.function.Supplier;
 
+/**
+ * This example is taken from : https://github.com/vladimir-bukhtoyarov/bucket4j/blob/master/doc-pages/basic-usage.md
+ */
 public class IpThrottlingFilter extends GenericFilterBean {
 
     // cache for storing token buckets, where IP is key.
@@ -40,6 +39,7 @@ public class IpThrottlingFilter extends GenericFilterBean {
     @Override
     public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain filterChain) throws IOException, ServletException {
         HttpServletRequest httpRequest = (HttpServletRequest) servletRequest;
+        HttpServletResponse httpResponse = (HttpServletResponse) servletResponse;
 
 
         BucketConfiguration bucketConfiguration = Bucket4j.configurationBuilder()
@@ -52,13 +52,14 @@ public class IpThrottlingFilter extends GenericFilterBean {
         // acquire cheap proxy to bucket, the real  
         Bucket bucket = buckets.getProxy(httpRequest.getRemoteAddr(), configurationLazySupplier);
 
-        // tryConsume returns false immediately if no tokens available with the bucket
-        if (bucket.tryConsume(1)) {
+        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+
+        if (probe.isConsumed()) {
             // the limit is not exceeded
+            httpResponse.setHeader("X-Rate-Limit-Remaining", "" + probe.getRemainingTokens());
             filterChain.doFilter(servletRequest, servletResponse);
         } else {
             // limit is exceeded
-            HttpServletResponse httpResponse = (HttpServletResponse) servletResponse;
             httpResponse.setContentType("text/plain");
             httpResponse.setStatus(429);
             httpResponse.getWriter().append("Too many requests");
